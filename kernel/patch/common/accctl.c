@@ -117,6 +117,8 @@ out:
 
 int commit_su(uid_t to_uid, const char *sctx)
 {
+    if (!kp_su_mode_enabled()) return -EPERM;
+
     if (all_allow_sid != SECSID_NULL && !to_uid) {
         return commit_kernel_su();
     } else {
@@ -127,6 +129,8 @@ int commit_su(uid_t to_uid, const char *sctx)
 // todo: rcu
 int task_su(pid_t pid, uid_t to_uid, const char *sctx)
 {
+    if (!kp_su_mode_enabled()) return -EPERM;
+
     int rc = 0;
     int scontext_changed = 0;
     struct task_struct *task = find_get_task_by_vpid(pid);

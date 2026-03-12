@@ -10,6 +10,8 @@ AS = $(TARGET_COMPILE)as
 OBJCOPY = $(TARGET_COMPILE)objcopy
 
 CFLAGS += -Wall -fno-builtin -std=gnu11 -nostdinc -mgeneral-regs-only
+CFLAGS += -fno-pic -fno-pie -fno-plt
+CFLAGS += -fno-stack-protector -fno-stack-clash-protection
 CFLAGS += -g
 
 ifdef DEBUG
@@ -74,7 +76,6 @@ base/sha256.o: base/sha256.c
 hdr:
 	cp -Rf patch/include/uapi ../user/
 	cp -f ../version ../user/
-	cp -f include/preset.h ../tools/
 
 .PHONY: clean
 clean:

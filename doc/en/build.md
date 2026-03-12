@@ -12,28 +12,6 @@ export ANDROID=1 # Android version, including support for the 'su' command
 make
 ```
 
-## Build kptools
-
-kptools can run anywhere, just compile it.  
-
-- Using Makefile
-
-```shell
-export ANDROID=1
-cd tools
-make
-```
-
-- Using CMake
-
-```shell
-cd tools
-mkdir build
-cd build
-cmake ..
-make
-```
-
 ## Building kpatch
 
 kpatch runs in the user space of the target system, so you can build it as usual.  

@@ -67,36 +67,68 @@ static void before_rest_init(hook_fargs4_t *args, void *udata)
     if ((rc = hotpatch_init())) goto out;
     log_boot("hotpatch_init done: %d\n", rc);
 
-    if ((rc = bypass_kcfi())) goto out;
-    log_boot("bypass_kcfi done: %d\n", rc);
+    if (kp_feature_enabled(KP_FEATURE_KCFI_BYPASS)) {
+        if ((rc = bypass_kcfi())) goto out;
+        log_boot("bypass_kcfi done: %d\n", rc);
+    } else {
+        log_boot("skip bypass_kcfi\n");
+    }
 
     if ((rc = resolve_struct())) goto out;
     log_boot("resolve_struct done: %d\n", rc);
 
-    if ((rc = bypass_selinux())) goto out;
-    log_boot("bypass_selinux done: %d\n", rc);
+    if (kp_feature_enabled(KP_FEATURE_SELINUX_BYPASS)) {
+        if ((rc = bypass_selinux())) goto out;
+        log_boot("bypass_selinux done: %d\n", rc);
+    } else {
+        log_boot("skip bypass_selinux\n");
+    }
 
-    if ((rc = task_observer())) goto out;
-    log_boot("task_observer done: %d\n", rc);
+    if (kp_feature_enabled(KP_FEATURE_TASK_OBSERVER)) {
+        if ((rc = task_observer())) goto out;
+        log_boot("task_observer done: %d\n", rc);
+    } else {
+        log_boot("skip task_observer\n");
+    }
 
-    rc = supercall_install();
-    log_boot("supercall_install done: %d\n", rc);
+    if (kp_feature_enabled(KP_FEATURE_SUPERCALL)) {
+        rc = supercall_install();
+        log_boot("supercall_install done: %d\n", rc);
+    } else {
+        log_boot("skip supercall_install\n");
+    }
 
-    rc = kstorage_init();
-    log_boot("kstorage_init done: %d\n", rc);
+    if (kp_feature_enabled(KP_FEATURE_KSTORAGE)) {
+        rc = kstorage_init();
+        log_boot("kstorage_init done: %d\n", rc);
+    } else {
+        log_boot("skip kstorage_init\n");
+    }
 
-    rc = su_compat_init();
-    log_boot("su_compat_init done: %d\n", rc);
+    if (kp_feature_enabled(KP_FEATURE_SU_COMPAT)) {
+        rc = su_compat_init();
+        log_boot("su_compat_init done: %d\n", rc);
+    } else {
+        log_boot("skip su_compat_init\n");
+    }
 
     rc = resolve_pt_regs();
     log_boot("resolve_pt_regs done: %d\n", rc);
 
 #ifdef ANDROID
-    rc = android_sepolicy_flags_fix();
-    log_boot("android_sepolicy_flags_fix done: %d\n", rc);
+    if (kp_feature_enabled(KP_FEATURE_SU)) {
+        rc = android_sepolicy_flags_fix();
+        log_boot("android_sepolicy_flags_fix done: %d\n", rc);
+    } else {
+        log_boot("skip android_sepolicy_flags_fix\n");
+    }
 
-    rc = android_user_init();
-    log_boot("android_user_init done: %d\n", rc);
+    if (kp_feature_enabled(KP_FEATURE_ANDROID_USER)) {
+        rc = android_user_init();
+        log_boot("android_user_init done: %d\n", rc);
+    } else {
+        log_boot("skip android_user_init\n");
+    }
 #endif
 
 out:

@@ -277,6 +277,27 @@ static long supercall(int is_key_auth, long cmd, long arg1, long arg2, long arg3
 
     switch (cmd) {
     case SUPERCALL_SU:
+    case SUPERCALL_SU_TASK:
+    case SUPERCALL_SU_GRANT_UID:
+    case SUPERCALL_SU_REVOKE_UID:
+    case SUPERCALL_SU_NUMS:
+    case SUPERCALL_SU_LIST:
+    case SUPERCALL_SU_PROFILE:
+    case SUPERCALL_SU_RESET_PATH:
+    case SUPERCALL_SU_GET_PATH:
+    case SUPERCALL_SU_GET_ALLOW_SCTX:
+    case SUPERCALL_SU_SET_ALLOW_SCTX:
+#ifdef ANDROID
+    case SUPERCALL_SU_GET_SAFEMODE:
+#endif
+        if (!kp_su_mode_enabled()) return -EPERM;
+        break;
+    default:
+        break;
+    }
+
+    switch (cmd) {
+    case SUPERCALL_SU:
         return call_su((struct su_profile * __user) arg1);
     case SUPERCALL_SU_TASK:
         return call_su_task((pid_t)arg1, (struct su_profile * __user) arg2);

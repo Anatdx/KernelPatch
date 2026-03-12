@@ -377,11 +377,14 @@ int su_compat_init()
     hook_err_t rc = HOOK_NO_ERR;
 
     uint8_t su_config = patch_config->patch_su_config;
-    bool enable = !!(su_config & PATCH_CONFIG_SU_ENABLE);
+    bool enable = kp_feature_enabled(KP_FEATURE_SU_COMPAT);
+    if (su_config) {
+        enable = !!(su_config & PATCH_CONFIG_SU_ENABLE);
+    }
     bool wrap = !!(su_config & PATCH_CONFIG_SU_HOOK_NO_WRAP);
     log_boot("su config: %x, enable: %d, wrap: %d\n", su_config, enable, wrap);
 
-    // if (!enable) return;
+    if (!kp_su_mode_enabled() || !enable) return 0;
 
     rc = hook_syscalln(__NR_execve, 3, before_execve, 0, (void *)0);
     log_boot("hook __NR_execve rc: %d\n", rc);

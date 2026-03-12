@@ -5,6 +5,22 @@
 
 #include <baselib.h>
 
+// Bridge compiler-emitted libc symbols to KernelPatch local implementations.
+void *memcpy(void *dst, const void *src, size_t n)
+{
+    return lib_memcpy(dst, src, n);
+}
+
+void *memmove(void *dst, const void *src, size_t n)
+{
+    return lib_memmove(dst, src, n);
+}
+
+int memcmp(const void *s1, const void *s2, size_t n)
+{
+    return lib_memcmp(s1, s2, n);
+}
+
 void *lib_memccpy(void *dst, const void *src, int c, size_t n)
 {
     char *q = (char *)dst;
@@ -346,7 +362,8 @@ char *lib_strstr(const char *haystack, const char *needle)
     return (char *)lib_memmem(haystack, lib_strlen(haystack), needle, lib_strlen(needle));
 }
 
-void *memset(void *s, int c, size_t n) {
+void *memset(void *s, int c, size_t n)
+{
     unsigned char *p = s;
     while (n--) {
         *p++ = (unsigned char)c;

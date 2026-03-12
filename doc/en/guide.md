@@ -2,14 +2,7 @@
 
 ## How KernelPatch Works
 
-KernelPatch consists of three components: kptools, kpimg, and kpatch.
-
-### [kptools](/tools/)
-
-kptools serves the following purposes:
-
-- It can parse kernel images without source code or symbol information and retrieve the offset addresses of arbitrary kernel symbols.
-- It patches the kernel image by appending kpimg to the end of the image and writing necessary information to the predetermined locations in kpimg. Finally, it replaces the kernel's startup location with the starting address of kpimg.
+KernelPatch consists of two core components: kpimg and kpuser.
 
 ### [kpimg](/kernel/)
 

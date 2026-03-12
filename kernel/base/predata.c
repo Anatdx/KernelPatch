@@ -21,10 +21,188 @@ static char *root_superkey = 0;
 struct patch_config *patch_config = 0;
 KP_EXPORT_SYMBOL(patch_config);
 
+uint32_t kp_feature_flags = 0;
+KP_EXPORT_SYMBOL(kp_feature_flags);
+
 static const char bstr[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
 
 static uint64_t _rand_next = 1000000007;
 static bool enable_root_key = false;
+
+#define FEATURE_PROFILE_MINIMAL (KP_FEATURE_KCFI_BYPASS | KP_FEATURE_SUPERCALL | KP_FEATURE_KSTORAGE)
+#define FEATURE_PROFILE_LEGACY                                                                        \
+    (FEATURE_PROFILE_MINIMAL | KP_FEATURE_TASK_OBSERVER | KP_FEATURE_SELINUX_BYPASS | KP_FEATURE_SU | \
+     KP_FEATURE_SU_COMPAT | KP_FEATURE_ANDROID_USER)
+
+static void set_feature_flag(uint32_t feature, bool enable)
+{
+    if (enable) {
+        kp_feature_flags |= feature;
+    } else {
+        kp_feature_flags &= ~feature;
+    }
+}
+
+static void apply_mode_no_su()
+{
+    kp_feature_flags &= ~(KP_FEATURE_SU | KP_FEATURE_SU_COMPAT | KP_FEATURE_ANDROID_USER);
+    kp_feature_flags &= ~(KP_FEATURE_TASK_OBSERVER | KP_FEATURE_SELINUX_BYPASS);
+}
+
+static int parse_bool_text(const char *value, bool *out)
+{
+    if (!value || !value[0]) return -1;
+    if (!lib_strcasecmp(value, "1") || !lib_strcasecmp(value, "y") || !lib_strcasecmp(value, "yes") ||
+        !lib_strcasecmp(value, "on") || !lib_strcasecmp(value, "true") || !lib_strcasecmp(value, "enable") ||
+        !lib_strcasecmp(value, "enabled")) {
+        *out = true;
+        return 0;
+    }
+
+    if (!lib_strcasecmp(value, "0") || !lib_strcasecmp(value, "n") || !lib_strcasecmp(value, "no") ||
+        !lib_strcasecmp(value, "off") || !lib_strcasecmp(value, "false") || !lib_strcasecmp(value, "disable") ||
+        !lib_strcasecmp(value, "disabled")) {
+        *out = false;
+        return 0;
+    }
+
+    return -1;
+}
+
+static uint32_t feature_from_name(const char *name)
+{
+    if (!name || !name[0]) return 0;
+    if (!lib_strcmp(name, "kcfi") || !lib_strcmp(name, "kcfi_bypass")) return KP_FEATURE_KCFI_BYPASS;
+    if (!lib_strcmp(name, "task") || !lib_strcmp(name, "task_observer")) return KP_FEATURE_TASK_OBSERVER;
+    if (!lib_strcmp(name, "selinux") || !lib_strcmp(name, "selinux_bypass")) return KP_FEATURE_SELINUX_BYPASS;
+    if (!lib_strcmp(name, "supercall")) return KP_FEATURE_SUPERCALL;
+    if (!lib_strcmp(name, "kstorage")) return KP_FEATURE_KSTORAGE;
+    if (!lib_strcmp(name, "su")) return KP_FEATURE_SU;
+    if (!lib_strcmp(name, "su_compat")) return KP_FEATURE_SU_COMPAT;
+    if (!lib_strcmp(name, "android_user")) return KP_FEATURE_ANDROID_USER;
+    return 0;
+}
+
+static void apply_feature_profile(const char *profile)
+{
+    if (!profile || !profile[0]) return;
+    if (!lib_strcasecmp(profile, "minimal")) {
+        kp_feature_flags = FEATURE_PROFILE_MINIMAL;
+        return;
+    }
+
+    if (!lib_strcasecmp(profile, "legacy") || !lib_strcasecmp(profile, "full")) {
+        kp_feature_flags = FEATURE_PROFILE_LEGACY;
+        return;
+    }
+
+    log_boot("unknown feature profile: %s\n", profile);
+}
+
+static void apply_additional_kv(const char *key, const char *value)
+{
+    if (!lib_strcmp(key, "policy")) {
+        if (!lib_strcasecmp(value, "no-su")) {
+            apply_mode_no_su();
+            return;
+        }
+        apply_feature_profile(value);
+        return;
+    }
+
+    if (!lib_strcmp(key, "mode")) {
+        if (!lib_strcasecmp(value, "no-su")) {
+            apply_mode_no_su();
+            return;
+        }
+
+        if (!lib_strcasecmp(value, "legacy") || !lib_strcasecmp(value, "full")) {
+            kp_feature_flags = FEATURE_PROFILE_LEGACY;
+            return;
+        }
+
+        if (!lib_strcasecmp(value, "minimal")) {
+            kp_feature_flags = FEATURE_PROFILE_MINIMAL;
+            return;
+        }
+    }
+
+    if (!lib_strcmp(key, "profile") || !lib_strcmp(key, "hook.profile")) {
+        apply_feature_profile(value);
+        return;
+    }
+
+    if (!lib_strcmp(key, "no_su")) {
+        bool enabled = false;
+        if (!parse_bool_text(value, &enabled) && enabled) {
+            apply_mode_no_su();
+            return;
+        }
+    }
+
+    if (!lib_strncmp(key, "feature.", 8)) {
+        const char *feature_name = key + 8;
+        uint32_t feature = feature_from_name(feature_name);
+        bool enabled = false;
+        if (!feature || parse_bool_text(value, &enabled)) {
+            log_boot("ignore additional: %s=%s\n", key, value);
+            return;
+        }
+        set_feature_flag(feature, enabled);
+        return;
+    }
+
+    log_boot("unknown additional: %s=%s\n", key, value);
+}
+
+static void parse_additional()
+{
+    const char *addition = start_preset.additional;
+    const char *pos = addition;
+    const char *end = addition + ADDITIONAL_LEN;
+
+    while (pos < end) {
+        int len = (uint8_t)(*pos);
+        if (!len) break;
+        pos++;
+        if (pos + len > end) {
+            log_boot("broken additional item, len=%d\n", len);
+            break;
+        }
+
+        char kv[128];
+        int kvlen = len < (int)sizeof(kv) - 1 ? len : (int)sizeof(kv) - 1;
+        lib_memcpy(kv, pos, kvlen);
+        kv[kvlen] = '\0';
+
+        char *eq = lib_strchr(kv, '=');
+        if (eq && eq != kv && eq[1]) {
+            *eq = '\0';
+            apply_additional_kv(kv, eq + 1);
+        } else {
+            log_boot("ignore malformed additional: %s\n", kv);
+        }
+        pos += len;
+    }
+}
+
+static void normalize_feature_flags()
+{
+    if (kp_feature_enabled(KP_FEATURE_SU_COMPAT) || kp_feature_enabled(KP_FEATURE_ANDROID_USER)) {
+        kp_feature_flags |= KP_FEATURE_SU;
+    }
+
+    if (kp_feature_enabled(KP_FEATURE_SU)) {
+        kp_feature_flags |= KP_FEATURE_TASK_OBSERVER;
+        kp_feature_flags |= KP_FEATURE_SELINUX_BYPASS;
+        kp_feature_flags |= KP_FEATURE_SUPERCALL;
+        kp_feature_flags |= KP_FEATURE_KSTORAGE;
+    }
+
+    if (!kp_feature_enabled(KP_FEATURE_SUPERCALL)) {
+        kp_feature_flags &= ~(KP_FEATURE_SU | KP_FEATURE_SU_COMPAT | KP_FEATURE_ANDROID_USER);
+    }
+}
 
 int auth_superkey(const char *key)
 {
@@ -136,11 +314,18 @@ void predata_init()
 
     patch_config = &start_preset.patch_config;
 
-    for (uintptr_t addr = (uint64_t)patch_config; addr < (uintptr_t)patch_config + PATCH_CONFIG_LEN;
-         addr += sizeof(uintptr_t)) {
-        uintptr_t *p = (uintptr_t *)addr;
+    for (uintptr_t *p = (uintptr_t *)patch_config; (uint8_t *)p < (uint8_t *)&patch_config->patch_su_config; p++) {
         if (*p) *p += kernel_va;
     }
+
+    kp_feature_flags = FEATURE_PROFILE_MINIMAL;
+    parse_additional();
+    normalize_feature_flags();
+
+    log_boot("feature flags=0x%x su=%d su_compat=%d android_user=%d selinux_bypass=%d task_observer=%d\n",
+             kp_feature_flags, kp_feature_enabled(KP_FEATURE_SU), kp_feature_enabled(KP_FEATURE_SU_COMPAT),
+             kp_feature_enabled(KP_FEATURE_ANDROID_USER), kp_feature_enabled(KP_FEATURE_SELINUX_BYPASS),
+             kp_feature_enabled(KP_FEATURE_TASK_OBSERVER));
 
     dsb(ish);
 }
