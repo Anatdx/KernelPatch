@@ -31,6 +31,7 @@
 #include <sucompat.h>
 #include <accctl.h>
 #include <kstorage.h>
+#include <policy.h>
 
 #define MAX_KEY_LEN 128
 
@@ -259,6 +260,25 @@ static long call_kstorage_remove(int gid, long did)
     return remove_kstorage(gid, did);
 }
 
+static long call_policy_get_flags()
+{
+    return (long)kp_feature_flags;
+}
+
+static long call_policy_apply_flags(uint32_t flags)
+{
+    int rc = kp_policy_apply_flags(flags);
+    if (rc) return rc;
+    return (long)kp_feature_flags;
+}
+
+static long call_policy_apply_profile(int profile)
+{
+    int rc = kp_policy_apply_profile(profile);
+    if (rc) return rc;
+    return (long)kp_feature_flags;
+}
+
 static long supercall(int is_key_auth, long cmd, long arg1, long arg2, long arg3, long arg4)
 {
     switch (cmd) {
@@ -353,6 +373,12 @@ static long supercall(int is_key_auth, long cmd, long arg1, long arg2, long arg3
     if (!is_key_auth) return -EPERM;
 
     switch (cmd) {
+    case SUPERCALL_POLICY_GET_FLAGS:
+        return call_policy_get_flags();
+    case SUPERCALL_POLICY_APPLY_FLAGS:
+        return call_policy_apply_flags((uint32_t)arg1);
+    case SUPERCALL_POLICY_APPLY_PROFILE:
+        return call_policy_apply_profile((int)arg1);
     case SUPERCALL_SKEY_GET:
         return call_skey_get((char *__user)arg1, (int)arg2);
     case SUPERCALL_SKEY_SET:
@@ -433,4 +459,11 @@ int supercall_install()
     }
 out:
     return rc;
+}
+
+int supercall_uninstall()
+{
+    unhook_syscalln(__NR_supercall, before, 0);
+    log_boot("unhook __NR_supercall done\n");
+    return 0;
 }

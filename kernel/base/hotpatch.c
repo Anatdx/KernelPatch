@@ -112,8 +112,9 @@ int hotpatch(void *addrs[], uint32_t values[], int cnt)
         .index = ATOMIC_INIT(0),
     };
     if (cnt <= 0) return -EINVAL;
-    if (!kfunc(stop_machine) || is_interrupt_masked() || !cpu_online_mask || !kvar(nr_cpu_ids) ||
-        num_online_cpus() == 1) {
+    // Before hotpatch_init() we are in early boot path; avoid stop_machine there.
+    if (!kfunc(stop_machine) || is_interrupt_masked() || !alias_page || !cpu_online_mask ||
+        !kvar(nr_cpu_ids) || num_online_cpus() == 1) {
         atomic_dec_return(&patch.index);
         return hotpatch_cb(&patch);
     }

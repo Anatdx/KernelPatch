@@ -180,6 +180,10 @@ static int (*avc_denied_backup)(struct selinux_state *state, void *ssid, void *t
 static int avc_denied_replace(struct selinux_state *_state, void *_ssid, void *_tsid, void *_tclass, void *_requested,
                               void *_driver, void *_xperm, void *_flags, struct av_decision *_avd)
 {
+    if (!kp_feature_enabled(KP_FEATURE_SELINUX_BYPASS)) {
+        return avc_denied_backup(_state, _ssid, _tsid, _tclass, _requested, _driver, _xperm, _flags, _avd);
+    }
+
     if (all_allow_sid != SECSID_NULL) {
         u32 ssid = (u32)(u64)_ssid;
         if ((uint64_t)_state <= 0xffffffffL) {
@@ -217,6 +221,10 @@ static int slow_avc_audit_replace(struct selinux_state *_state, void *_ssid, voi
                                   void *_requested, void *_audited, void *_denied, void *_result,
                                   struct common_audit_data *_a)
 {
+    if (!kp_feature_enabled(KP_FEATURE_SELINUX_BYPASS)) {
+        return slow_avc_audit_backup(_state, _ssid, _tsid, _tclass, _requested, _audited, _denied, _result, _a);
+    }
+
     if (all_allow_sid != SECSID_NULL) {
         u32 ssid = (u64)_ssid;
         if ((uint64_t)_state <= 0xffffffffL) {
@@ -255,5 +263,21 @@ int bypass_selinux()
         }
     }
 
+    return 0;
+}
+
+int bypass_selinux_deinit()
+{
+    unsigned long avc_denied_addr = patch_config->avc_denied;
+    if (avc_denied_addr) {
+        unhook((void *)avc_denied_addr);
+    }
+
+    unsigned long slow_avc_audit_addr = patch_config->slow_avc_audit;
+    if (slow_avc_audit_addr) {
+        unhook((void *)slow_avc_audit_addr);
+    }
+
+    log_boot("unhook selinux bypass hooks done\n");
     return 0;
 }

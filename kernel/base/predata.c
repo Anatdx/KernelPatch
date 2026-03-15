@@ -24,15 +24,23 @@ KP_EXPORT_SYMBOL(patch_config);
 uint32_t kp_feature_flags = 0;
 KP_EXPORT_SYMBOL(kp_feature_flags);
 
+uint32_t kp_stage1_hook_flags = 0;
+KP_EXPORT_SYMBOL(kp_stage1_hook_flags);
+
 static const char bstr[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
 
 static uint64_t _rand_next = 1000000007;
 static bool enable_root_key = false;
 
 #define FEATURE_PROFILE_MINIMAL (KP_FEATURE_KCFI_BYPASS | KP_FEATURE_SUPERCALL | KP_FEATURE_KSTORAGE)
-#define FEATURE_PROFILE_LEGACY                                                                        \
-    (FEATURE_PROFILE_MINIMAL | KP_FEATURE_TASK_OBSERVER | KP_FEATURE_SELINUX_BYPASS | KP_FEATURE_SU | \
-     KP_FEATURE_SU_COMPAT | KP_FEATURE_ANDROID_USER)
+#define FEATURE_PROFILE_ROOTFUL (FEATURE_PROFILE_MINIMAL | KP_FEATURE_SU | KP_FEATURE_SU_COMPAT | KP_FEATURE_ANDROID_USER)
+#define FEATURE_PROFILE_KPM_SUPPORT (FEATURE_PROFILE_MINIMAL)
+#define FEATURE_PROFILE_FULL (FEATURE_PROFILE_ROOTFUL | KP_FEATURE_FS_API)
+
+#define STAGE1_PROFILE_MINIMAL (KP_HOOK_STAGE1_INIT)
+#define STAGE1_PROFILE_ROOTFUL (KP_HOOK_STAGE1_INIT)
+#define STAGE1_PROFILE_KPM_SUPPORT (KP_HOOK_STAGE1_INIT | KP_HOOK_STAGE1_KERNEL_INIT)
+#define STAGE1_PROFILE_FULL (KP_HOOK_STAGE1_INIT | KP_HOOK_STAGE1_KERNEL_INIT)
 
 static void set_feature_flag(uint32_t feature, bool enable)
 {
@@ -77,22 +85,89 @@ static uint32_t feature_from_name(const char *name)
     if (!lib_strcmp(name, "selinux") || !lib_strcmp(name, "selinux_bypass")) return KP_FEATURE_SELINUX_BYPASS;
     if (!lib_strcmp(name, "supercall")) return KP_FEATURE_SUPERCALL;
     if (!lib_strcmp(name, "kstorage")) return KP_FEATURE_KSTORAGE;
+    if (!lib_strcmp(name, "fsapi") || !lib_strcmp(name, "fs_api")) return KP_FEATURE_FS_API;
     if (!lib_strcmp(name, "su")) return KP_FEATURE_SU;
     if (!lib_strcmp(name, "su_compat")) return KP_FEATURE_SU_COMPAT;
     if (!lib_strcmp(name, "android_user")) return KP_FEATURE_ANDROID_USER;
     return 0;
 }
 
+uint32_t kp_policy_profile_flags(int profile)
+{
+    switch (profile) {
+    case KP_POLICY_PROFILE_MINIMAL:
+        return FEATURE_PROFILE_MINIMAL;
+    case KP_POLICY_PROFILE_ROOTFUL:
+        return FEATURE_PROFILE_ROOTFUL;
+    case KP_POLICY_PROFILE_KPM_SUPPORT:
+        return FEATURE_PROFILE_KPM_SUPPORT;
+    case KP_POLICY_PROFILE_FULL:
+        return FEATURE_PROFILE_FULL;
+    default:
+        return 0;
+    }
+}
+KP_EXPORT_SYMBOL(kp_policy_profile_flags);
+
+uint32_t kp_policy_profile_stage1_hooks(int profile)
+{
+    uint32_t flags = 0;
+    switch (profile) {
+    case KP_POLICY_PROFILE_MINIMAL:
+        flags = STAGE1_PROFILE_MINIMAL;
+        break;
+    case KP_POLICY_PROFILE_ROOTFUL:
+        flags = STAGE1_PROFILE_ROOTFUL;
+        break;
+    case KP_POLICY_PROFILE_KPM_SUPPORT:
+        flags = STAGE1_PROFILE_KPM_SUPPORT;
+        break;
+    case KP_POLICY_PROFILE_FULL:
+        flags = STAGE1_PROFILE_FULL;
+        break;
+    default:
+        flags = 0;
+        break;
+    }
+#ifdef DEBUG
+    flags |= KP_HOOK_STAGE1_PANIC;
+#endif
+    return flags;
+}
+KP_EXPORT_SYMBOL(kp_policy_profile_stage1_hooks);
+
 static void apply_feature_profile(const char *profile)
 {
     if (!profile || !profile[0]) return;
     if (!lib_strcasecmp(profile, "minimal")) {
-        kp_feature_flags = FEATURE_PROFILE_MINIMAL;
+        kp_feature_flags = kp_policy_profile_flags(KP_POLICY_PROFILE_MINIMAL);
+        kp_stage1_hook_flags = kp_policy_profile_stage1_hooks(KP_POLICY_PROFILE_MINIMAL);
+        return;
+    }
+
+    if (!lib_strcasecmp(profile, "rootful")) {
+        kp_feature_flags = kp_policy_profile_flags(KP_POLICY_PROFILE_ROOTFUL);
+        kp_stage1_hook_flags = kp_policy_profile_stage1_hooks(KP_POLICY_PROFILE_ROOTFUL);
+        return;
+    }
+
+    if (!lib_strcasecmp(profile, "kpm") || !lib_strcasecmp(profile, "kpm-support") ||
+        !lib_strcasecmp(profile, "kpm_support")) {
+        kp_feature_flags = kp_policy_profile_flags(KP_POLICY_PROFILE_KPM_SUPPORT);
+        kp_stage1_hook_flags = kp_policy_profile_stage1_hooks(KP_POLICY_PROFILE_KPM_SUPPORT);
         return;
     }
 
     if (!lib_strcasecmp(profile, "legacy") || !lib_strcasecmp(profile, "full")) {
-        kp_feature_flags = FEATURE_PROFILE_LEGACY;
+        kp_feature_flags = kp_policy_profile_flags(KP_POLICY_PROFILE_FULL);
+        kp_stage1_hook_flags = kp_policy_profile_stage1_hooks(KP_POLICY_PROFILE_FULL);
+        return;
+    }
+
+    if (!lib_strcasecmp(profile, "no-su") || !lib_strcasecmp(profile, "nosu")) {
+        kp_feature_flags = kp_policy_profile_flags(KP_POLICY_PROFILE_MINIMAL);
+        kp_stage1_hook_flags = kp_policy_profile_stage1_hooks(KP_POLICY_PROFILE_MINIMAL);
+        apply_mode_no_su();
         return;
     }
 
@@ -117,12 +192,27 @@ static void apply_additional_kv(const char *key, const char *value)
         }
 
         if (!lib_strcasecmp(value, "legacy") || !lib_strcasecmp(value, "full")) {
-            kp_feature_flags = FEATURE_PROFILE_LEGACY;
+            kp_feature_flags = kp_policy_profile_flags(KP_POLICY_PROFILE_FULL);
+            kp_stage1_hook_flags = kp_policy_profile_stage1_hooks(KP_POLICY_PROFILE_FULL);
+            return;
+        }
+
+        if (!lib_strcasecmp(value, "rootful")) {
+            kp_feature_flags = kp_policy_profile_flags(KP_POLICY_PROFILE_ROOTFUL);
+            kp_stage1_hook_flags = kp_policy_profile_stage1_hooks(KP_POLICY_PROFILE_ROOTFUL);
+            return;
+        }
+
+        if (!lib_strcasecmp(value, "kpm") || !lib_strcasecmp(value, "kpm-support") ||
+            !lib_strcasecmp(value, "kpm_support")) {
+            kp_feature_flags = kp_policy_profile_flags(KP_POLICY_PROFILE_KPM_SUPPORT);
+            kp_stage1_hook_flags = kp_policy_profile_stage1_hooks(KP_POLICY_PROFILE_KPM_SUPPORT);
             return;
         }
 
         if (!lib_strcasecmp(value, "minimal")) {
-            kp_feature_flags = FEATURE_PROFILE_MINIMAL;
+            kp_feature_flags = kp_policy_profile_flags(KP_POLICY_PROFILE_MINIMAL);
+            kp_stage1_hook_flags = kp_policy_profile_stage1_hooks(KP_POLICY_PROFILE_MINIMAL);
             return;
         }
     }
@@ -136,6 +226,42 @@ static void apply_additional_kv(const char *key, const char *value)
         bool enabled = false;
         if (!parse_bool_text(value, &enabled) && enabled) {
             apply_mode_no_su();
+            return;
+        }
+    }
+
+    if (!lib_strcmp(key, "hook.panic")) {
+        bool enabled = false;
+        if (!parse_bool_text(value, &enabled)) {
+            if (enabled) {
+                kp_stage1_hook_flags |= KP_HOOK_STAGE1_PANIC;
+            } else {
+                kp_stage1_hook_flags &= ~KP_HOOK_STAGE1_PANIC;
+            }
+            return;
+        }
+    }
+
+    if (!lib_strcmp(key, "hook.init")) {
+        bool enabled = false;
+        if (!parse_bool_text(value, &enabled)) {
+            if (enabled) {
+                kp_stage1_hook_flags |= KP_HOOK_STAGE1_INIT;
+            } else {
+                kp_stage1_hook_flags &= ~KP_HOOK_STAGE1_INIT;
+            }
+            return;
+        }
+    }
+
+    if (!lib_strcmp(key, "hook.kernel_init") || !lib_strcmp(key, "hook.kpm_event")) {
+        bool enabled = false;
+        if (!parse_bool_text(value, &enabled)) {
+            if (enabled) {
+                kp_stage1_hook_flags |= KP_HOOK_STAGE1_KERNEL_INIT;
+            } else {
+                kp_stage1_hook_flags &= ~KP_HOOK_STAGE1_KERNEL_INIT;
+            }
             return;
         }
     }
@@ -186,23 +312,33 @@ static void parse_additional()
     }
 }
 
-static void normalize_feature_flags()
+uint32_t kp_normalize_feature_flags(uint32_t flags)
 {
-    if (kp_feature_enabled(KP_FEATURE_SU_COMPAT) || kp_feature_enabled(KP_FEATURE_ANDROID_USER)) {
-        kp_feature_flags |= KP_FEATURE_SU;
+    if (flags & (KP_FEATURE_SU_COMPAT | KP_FEATURE_ANDROID_USER)) {
+        flags |= KP_FEATURE_SU;
     }
 
-    if (kp_feature_enabled(KP_FEATURE_SU)) {
-        kp_feature_flags |= KP_FEATURE_TASK_OBSERVER;
-        kp_feature_flags |= KP_FEATURE_SELINUX_BYPASS;
-        kp_feature_flags |= KP_FEATURE_SUPERCALL;
-        kp_feature_flags |= KP_FEATURE_KSTORAGE;
+    if (flags & KP_FEATURE_SU) {
+        flags |= KP_FEATURE_TASK_OBSERVER;
+        flags |= KP_FEATURE_SELINUX_BYPASS;
+        flags |= KP_FEATURE_SUPERCALL;
+        flags |= KP_FEATURE_KSTORAGE;
     }
 
-    if (!kp_feature_enabled(KP_FEATURE_SUPERCALL)) {
-        kp_feature_flags &= ~(KP_FEATURE_SU | KP_FEATURE_SU_COMPAT | KP_FEATURE_ANDROID_USER);
+    if (!(flags & KP_FEATURE_SUPERCALL)) {
+        flags &= ~(KP_FEATURE_SU | KP_FEATURE_SU_COMPAT | KP_FEATURE_ANDROID_USER);
     }
+
+    return flags;
 }
+KP_EXPORT_SYMBOL(kp_normalize_feature_flags);
+
+void kp_apply_feature_flags(uint32_t flags)
+{
+    kp_feature_flags = kp_normalize_feature_flags(flags);
+    dsb(ish);
+}
+KP_EXPORT_SYMBOL(kp_apply_feature_flags);
 
 int auth_superkey(const char *key)
 {
@@ -318,14 +454,19 @@ void predata_init()
         if (*p) *p += kernel_va;
     }
 
-    kp_feature_flags = FEATURE_PROFILE_MINIMAL;
+    kp_feature_flags = kp_policy_profile_flags(KP_POLICY_PROFILE_MINIMAL);
+    kp_stage1_hook_flags = kp_policy_profile_stage1_hooks(KP_POLICY_PROFILE_MINIMAL);
     parse_additional();
-    normalize_feature_flags();
+    kp_feature_flags = kp_normalize_feature_flags(kp_feature_flags);
 
-    log_boot("feature flags=0x%x su=%d su_compat=%d android_user=%d selinux_bypass=%d task_observer=%d\n",
-             kp_feature_flags, kp_feature_enabled(KP_FEATURE_SU), kp_feature_enabled(KP_FEATURE_SU_COMPAT),
-             kp_feature_enabled(KP_FEATURE_ANDROID_USER), kp_feature_enabled(KP_FEATURE_SELINUX_BYPASS),
-             kp_feature_enabled(KP_FEATURE_TASK_OBSERVER));
+    log_boot(
+        "feature flags=0x%x hooks(stage1)=0x%x panic=%d init=%d kernel_init=%d su=%d su_compat=%d android_user=%d "
+        "selinux_bypass=%d task_observer=%d fs_api=%d\n",
+        kp_feature_flags, kp_stage1_hook_flags, kp_stage1_hook_enabled(KP_HOOK_STAGE1_PANIC),
+        kp_stage1_hook_enabled(KP_HOOK_STAGE1_INIT), kp_stage1_hook_enabled(KP_HOOK_STAGE1_KERNEL_INIT),
+        kp_feature_enabled(KP_FEATURE_SU), kp_feature_enabled(KP_FEATURE_SU_COMPAT),
+        kp_feature_enabled(KP_FEATURE_ANDROID_USER), kp_feature_enabled(KP_FEATURE_SELINUX_BYPASS),
+        kp_feature_enabled(KP_FEATURE_TASK_OBSERVER), kp_feature_enabled(KP_FEATURE_FS_API));
 
     dsb(ish);
 }

@@ -58,6 +58,7 @@ KP_EXPORT_SYMBOL(task_ext_size);
 
 static void after_copy_process(hook_fargs8_t *args, void *udata)
 {
+    if (!kp_feature_enabled(KP_FEATURE_TASK_OBSERVER)) return;
     struct task_struct *new = (struct task_struct *)args->ret;
     if (unlikely(!new || IS_ERR(new))) return;
     prepare_task_ext(new, current);
@@ -65,6 +66,7 @@ static void after_copy_process(hook_fargs8_t *args, void *udata)
 
 static void after_cgroup_post_fork(hook_fargs4_t *args, void *udata)
 {
+    if (!kp_feature_enabled(KP_FEATURE_TASK_OBSERVER)) return;
     struct task_struct *new = (struct task_struct *)args->arg0;
     prepare_task_ext(new, current);
 }
@@ -90,4 +92,19 @@ int task_observer()
     }
 
     return rc;
+}
+
+int task_observer_deinit()
+{
+    unsigned long copy_process_addr = patch_config->copy_process;
+    if (copy_process_addr) {
+        hook_unwrap((void *)copy_process_addr, 0, after_copy_process);
+    } else {
+        unsigned long cgroup_post_fork_addr = patch_config->cgroup_post_fork;
+        if (cgroup_post_fork_addr) {
+            hook_unwrap((void *)cgroup_post_fork_addr, 0, after_cgroup_post_fork);
+        }
+    }
+    log_boot("unhook task_observer done\n");
+    return 0;
 }

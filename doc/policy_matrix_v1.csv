@@ -1,0 +1,5 @@
+Profile,Stage1 Hooks (early boot),Stage2 Install Set (before_rest_init),Hot Policy Scope,Default Use,Notes
+minimal,rest_init/cgroup_init,"hotpatch_init; kcfi_bypass; resolve_struct; supercall; kstorage; resolve_pt_regs",feature flags only,default safe baseline,"No SU chain; kernel_init hook off; panic hook off by default (enable in debug via hook.panic=1)"
+rootful,rest_init/cgroup_init,"minimal + task_observer; selinux_bypass; su_compat; android_sepolicy_flags_fix; android_user",feature flags only,full root capability,"Built on minimal path; keep kernel_init hook off unless KPM events are needed"
+kpm-support,"rest_init/cgroup_init + kernel_init","minimal + KPM pre/post-kernel-init event pipeline",feature flags only,kpm event focus,"Used when KPM requires kernel_init event hooks"
+full,"rest_init/cgroup_init + kernel_init (+ panic optional)","rootful + fsapi",feature flags only,lab/experimental,"Highest risk profile; fsapi should stay opt-in in production"

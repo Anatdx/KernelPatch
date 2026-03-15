@@ -24,12 +24,14 @@
 
 static void before_policydb_write(hook_fargs2_t *args, void *udata)
 {
+    if (!kp_feature_enabled(KP_FEATURE_SU)) return;
     struct _policy_file *fp = (struct _policy_file *)args->arg1;
     args->local.data0 = (uint64_t)fp->data;
 }
 
 static void after_policydb_write(hook_fargs2_t *args, void *udata)
 {
+    if (!kp_feature_enabled(KP_FEATURE_SU)) return;
     struct _policydb *p = (struct _policydb *)args->arg0;
     char *data = (char *)args->local.data0;
 
@@ -60,5 +62,15 @@ int android_sepolicy_flags_fix()
         }
     }
 
+    return 0;
+}
+
+int android_sepolicy_flags_unfix()
+{
+    unsigned long policydb_write_addr = kallsyms_lookup_name("policydb_write");
+    if (likely(policydb_write_addr)) {
+        hook_unwrap((void *)policydb_write_addr, before_policydb_write, after_policydb_write);
+    }
+    log_boot("unhook policydb_write flags fixer done\n");
     return 0;
 }

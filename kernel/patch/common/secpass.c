@@ -30,7 +30,7 @@ static enum bug_trap_type (*backup_report_cfi_failure)(struct pt_regs *regs, uns
 static enum bug_trap_type replace_report_cfi_failure(struct pt_regs *regs, unsigned long addr, unsigned long *target,
                                                      u32 type)
 {
-    if (should_cfi_pass(*target)) {
+    if (target && should_cfi_pass(*target)) {
         return BUG_TRAP_TYPE_WARN;
     }
     enum bug_trap_type rc = backup_report_cfi_failure(regs, addr, target, type);
@@ -85,4 +85,23 @@ int bypass_kcfi()
 
 out:
     return rc;
+}
+
+int bypass_kcfi_deinit()
+{
+    unsigned long report_cfi_failure_addr = patch_config->report_cfi_failure;
+    if (report_cfi_failure_addr) {
+        unhook((void *)report_cfi_failure_addr);
+    }
+
+    unsigned long __cfi_slowpath_addr = patch_config->__cfi_slowpath_diag;
+    if (!__cfi_slowpath_addr) {
+        __cfi_slowpath_addr = patch_config->__cfi_slowpath;
+    }
+    if (__cfi_slowpath_addr) {
+        unhook((void *)__cfi_slowpath_addr);
+    }
+
+    log_boot("unhook kcfi bypass hooks done\n");
+    return 0;
 }

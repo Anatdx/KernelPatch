@@ -10,6 +10,7 @@
 #include <syscall.h>
 #include <module.h>
 #include <predata.h>
+#include <policy.h>
 #include <linux/string.h>
 
 void print_bootlog()
@@ -49,6 +50,7 @@ int bypass_kcfi();
 int bypass_selinux();
 int resolve_pt_regs();
 int supercall_install();
+int fsapi_install();
 void module_init();
 void syscall_init();
 int kstorage_init();
@@ -68,9 +70,14 @@ static void before_rest_init(hook_fargs4_t *args, void *udata)
     log_boot("hotpatch_init done: %d\n", rc);
 
     if (kp_feature_enabled(KP_FEATURE_KCFI_BYPASS)) {
-        if ((rc = bypass_kcfi())) goto out;
+        if ((rc = bypass_kcfi())) {
+            kp_policy_mark_component_ready(KP_FEATURE_KCFI_BYPASS, false);
+            goto out;
+        }
+        kp_policy_mark_component_ready(KP_FEATURE_KCFI_BYPASS, true);
         log_boot("bypass_kcfi done: %d\n", rc);
     } else {
+        kp_policy_mark_component_ready(KP_FEATURE_KCFI_BYPASS, false);
         log_boot("skip bypass_kcfi\n");
     }
 
@@ -78,14 +85,22 @@ static void before_rest_init(hook_fargs4_t *args, void *udata)
     log_boot("resolve_struct done: %d\n", rc);
 
     if (kp_feature_enabled(KP_FEATURE_SELINUX_BYPASS)) {
-        if ((rc = bypass_selinux())) goto out;
+        if ((rc = bypass_selinux())) {
+            kp_policy_mark_component_ready(KP_FEATURE_SELINUX_BYPASS, false);
+            goto out;
+        }
+        kp_policy_mark_component_ready(KP_FEATURE_SELINUX_BYPASS, true);
         log_boot("bypass_selinux done: %d\n", rc);
     } else {
         log_boot("skip bypass_selinux\n");
     }
 
     if (kp_feature_enabled(KP_FEATURE_TASK_OBSERVER)) {
-        if ((rc = task_observer())) goto out;
+        if ((rc = task_observer())) {
+            kp_policy_mark_component_ready(KP_FEATURE_TASK_OBSERVER, false);
+            goto out;
+        }
+        kp_policy_mark_component_ready(KP_FEATURE_TASK_OBSERVER, true);
         log_boot("task_observer done: %d\n", rc);
     } else {
         log_boot("skip task_observer\n");
@@ -93,13 +108,23 @@ static void before_rest_init(hook_fargs4_t *args, void *udata)
 
     if (kp_feature_enabled(KP_FEATURE_SUPERCALL)) {
         rc = supercall_install();
+        kp_policy_mark_component_ready(KP_FEATURE_SUPERCALL, rc == 0);
         log_boot("supercall_install done: %d\n", rc);
     } else {
         log_boot("skip supercall_install\n");
     }
 
+    if (kp_feature_enabled(KP_FEATURE_FS_API)) {
+        rc = fsapi_install();
+        kp_policy_mark_component_ready(KP_FEATURE_FS_API, rc == 0);
+        log_boot("fsapi_install done: %d\n", rc);
+    } else {
+        log_boot("skip fsapi_install\n");
+    }
+
     if (kp_feature_enabled(KP_FEATURE_KSTORAGE)) {
         rc = kstorage_init();
+        kp_policy_mark_component_ready(KP_FEATURE_KSTORAGE, rc == 0);
         log_boot("kstorage_init done: %d\n", rc);
     } else {
         log_boot("skip kstorage_init\n");
@@ -107,6 +132,7 @@ static void before_rest_init(hook_fargs4_t *args, void *udata)
 
     if (kp_feature_enabled(KP_FEATURE_SU_COMPAT)) {
         rc = su_compat_init();
+        kp_policy_mark_component_ready(KP_FEATURE_SU_COMPAT, rc == 0);
         log_boot("su_compat_init done: %d\n", rc);
     } else {
         log_boot("skip su_compat_init\n");
@@ -118,6 +144,7 @@ static void before_rest_init(hook_fargs4_t *args, void *udata)
 #ifdef ANDROID
     if (kp_feature_enabled(KP_FEATURE_SU)) {
         rc = android_sepolicy_flags_fix();
+        kp_policy_mark_component_ready(KP_FEATURE_SU, rc == 0);
         log_boot("android_sepolicy_flags_fix done: %d\n", rc);
     } else {
         log_boot("skip android_sepolicy_flags_fix\n");
@@ -125,6 +152,7 @@ static void before_rest_init(hook_fargs4_t *args, void *udata)
 
     if (kp_feature_enabled(KP_FEATURE_ANDROID_USER)) {
         rc = android_user_init();
+        kp_policy_mark_component_ready(KP_FEATURE_ANDROID_USER, rc == 0);
         log_boot("android_user_init done: %d\n", rc);
     } else {
         log_boot("skip android_user_init\n");
@@ -169,7 +197,9 @@ int patch()
 
     unsigned long panic_addr = patch_config->panic;
     logkd("panic addr: %llx\n", panic_addr);
-    if (panic_addr) {
+    if (!kp_stage1_hook_enabled(KP_HOOK_STAGE1_PANIC)) {
+        log_boot("skip hook panic addr: %llx\n", panic_addr);
+    } else if (panic_addr) {
         rc = hook_wrap12((void *)panic_addr, before_panic, 0, 0);
         log_boot("hook panic rc: %d\n", rc);
     }
@@ -178,7 +208,9 @@ int patch()
     // rest_init or cgroup_init
     unsigned long init_addr = patch_config->rest_init;
     if (!init_addr) init_addr = patch_config->cgroup_init;
-    if (init_addr) {
+    if (!kp_stage1_hook_enabled(KP_HOOK_STAGE1_INIT)) {
+        log_boot("skip hook rest_init/cgroup_init addr: %llx\n", init_addr);
+    } else if (init_addr) {
         rc = hook_wrap4((void *)init_addr, before_rest_init, 0, (void *)init_addr);
         log_boot("hook rest_init rc: %d\n", rc);
     }
@@ -186,7 +218,9 @@ int patch()
 
     // kernel_init
     unsigned long kernel_init_addr = patch_config->kernel_init;
-    if (kernel_init_addr) {
+    if (!kp_stage1_hook_enabled(KP_HOOK_STAGE1_KERNEL_INIT)) {
+        log_boot("skip hook kernel_init addr: %llx\n", kernel_init_addr);
+    } else if (kernel_init_addr) {
         rc = hook_wrap4((void *)kernel_init_addr, before_kernel_init, after_kernel_init, 0);
         log_boot("hook kernel_init rc: %d\n", rc);
     }

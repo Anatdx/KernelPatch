@@ -265,6 +265,7 @@ static void handle_before_execve(char **__user u_filename_p, char **__user uargv
 
 static void before_execve(hook_fargs3_t *args, void *udata)
 {
+    if (!kp_feature_enabled(KP_FEATURE_SU_COMPAT)) return;
     void *arg0p = syscall_argn_p(args, 0);
     void *arg1p = syscall_argn_p(args, 1);
     handle_before_execve((char **)arg0p, (char **)arg1p, udata);
@@ -282,6 +283,7 @@ static void before_execve(hook_fargs3_t *args, void *udata)
 //                 const char __user *const __user *, envp, int, flags)
 __maybe_unused static void before_execveat(hook_fargs5_t *args, void *udata)
 {
+    if (!kp_feature_enabled(KP_FEATURE_SU_COMPAT)) return;
     void *arg1p = syscall_argn_p(args, 1);
     void *arg2p = syscall_argn_p(args, 2);
     handle_before_execve((char **)arg1p, (char **)arg2p, udata);
@@ -304,6 +306,7 @@ __maybe_unused static void before_execveat(hook_fargs5_t *args, void *udata)
 // 		struct statx __user *, buffer)
 static void su_handler_arg1_ufilename_before(hook_fargs6_t *args, void *udata)
 {
+    if (!kp_feature_enabled(KP_FEATURE_SU_COMPAT)) return;
     uid_t uid = current_uid();
     if (!is_su_allow_uid(uid)) return;
 
@@ -359,10 +362,14 @@ int su_compat_init()
 {
     current_su_path = default_su_path;
 
-    su_kstorage_gid = try_alloc_kstroage_group();
+    if (su_kstorage_gid < 0) {
+        su_kstorage_gid = try_alloc_kstroage_group();
+    }
     if (su_kstorage_gid != KSTORAGE_SU_LIST_GROUP) return -ENOMEM;
 
-    exclude_kstorage_gid = try_alloc_kstroage_group();
+    if (exclude_kstorage_gid < 0) {
+        exclude_kstorage_gid = try_alloc_kstroage_group();
+    }
     if (exclude_kstorage_gid != KSTORAGE_EXCLUDE_LIST_GROUP) return -ENOMEM;
 
 #ifdef ANDROID
@@ -407,5 +414,22 @@ int su_compat_init()
     rc = hook_compat_syscalln(334, 3, su_handler_arg1_ufilename_before, 0, (void *)0);
     log_boot("hook 32 __NR_faccessat rc: %d\n", rc);
 
+    return 0;
+}
+
+int su_compat_deinit()
+{
+    unhook_syscalln(__NR_execve, before_execve, 0);
+    unhook_syscalln(__NR3264_fstatat, su_handler_arg1_ufilename_before, 0);
+    unhook_syscalln(__NR_faccessat, su_handler_arg1_ufilename_before, 0);
+
+    // __NR_execve 11
+    unhook_compat_syscalln(11, before_execve, 0);
+    // __NR_fstatat64 327
+    unhook_compat_syscalln(327, su_handler_arg1_ufilename_before, 0);
+    // __NR_faccessat 334
+    unhook_compat_syscalln(334, su_handler_arg1_ufilename_before, 0);
+
+    log_boot("unhook su_compat syscalls done\n");
     return 0;
 }
