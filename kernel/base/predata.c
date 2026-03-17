@@ -33,9 +33,11 @@ static uint64_t _rand_next = 1000000007;
 static bool enable_root_key = false;
 
 #define FEATURE_PROFILE_MINIMAL (KP_FEATURE_KCFI_BYPASS | KP_FEATURE_SUPERCALL | KP_FEATURE_KSTORAGE)
-#define FEATURE_PROFILE_ROOTFUL (FEATURE_PROFILE_MINIMAL | KP_FEATURE_SU | KP_FEATURE_SU_COMPAT)
+#define FEATURE_PROFILE_ROOTFUL                                                                       \
+    (FEATURE_PROFILE_MINIMAL | KP_FEATURE_TASK_OBSERVER | KP_FEATURE_SELINUX_BYPASS | KP_FEATURE_SU | \
+     KP_FEATURE_SU_COMPAT | KP_FEATURE_ANDROID_USER)
 #define FEATURE_PROFILE_KPM_SUPPORT (FEATURE_PROFILE_MINIMAL)
-#define FEATURE_PROFILE_FULL (FEATURE_PROFILE_ROOTFUL | KP_FEATURE_ANDROID_USER | KP_FEATURE_FS_API)
+#define FEATURE_PROFILE_FULL (FEATURE_PROFILE_ROOTFUL | KP_FEATURE_FS_API)
 
 #define STAGE1_PROFILE_MINIMAL (KP_HOOK_STAGE1_INIT)
 #define STAGE1_PROFILE_ROOTFUL (KP_HOOK_STAGE1_INIT)
@@ -473,14 +475,13 @@ void predata_init()
     parse_additional();
     kp_feature_flags = kp_normalize_feature_flags(kp_feature_flags);
 
-    log_boot(
-        "feature flags=0x%x hooks(stage1)=0x%x panic=%d init=%d kernel_init=%d su=%d su_compat=%d android_user=%d "
-        "selinux_bypass=%d task_observer=%d fs_api=%d\n",
-        kp_feature_flags, kp_stage1_hook_flags, kp_stage1_hook_enabled(KP_HOOK_STAGE1_PANIC),
-        kp_stage1_hook_enabled(KP_HOOK_STAGE1_INIT), kp_stage1_hook_enabled(KP_HOOK_STAGE1_KERNEL_INIT),
-        kp_feature_enabled(KP_FEATURE_SU), kp_feature_enabled(KP_FEATURE_SU_COMPAT),
-        kp_feature_enabled(KP_FEATURE_ANDROID_USER), kp_feature_enabled(KP_FEATURE_SELINUX_BYPASS),
-        kp_feature_enabled(KP_FEATURE_TASK_OBSERVER), kp_feature_enabled(KP_FEATURE_FS_API));
+    log_boot("feature flags=0x%x hooks(stage1)=0x%x panic=%d init=%d kernel_init=%d su=%d su_compat=%d android_user=%d "
+             "selinux_bypass=%d task_observer=%d fs_api=%d\n",
+             kp_feature_flags, kp_stage1_hook_flags, kp_stage1_hook_enabled(KP_HOOK_STAGE1_PANIC),
+             kp_stage1_hook_enabled(KP_HOOK_STAGE1_INIT), kp_stage1_hook_enabled(KP_HOOK_STAGE1_KERNEL_INIT),
+             kp_feature_enabled(KP_FEATURE_SU), kp_feature_enabled(KP_FEATURE_SU_COMPAT),
+             kp_feature_enabled(KP_FEATURE_ANDROID_USER), kp_feature_enabled(KP_FEATURE_SELINUX_BYPASS),
+             kp_feature_enabled(KP_FEATURE_TASK_OBSERVER), kp_feature_enabled(KP_FEATURE_FS_API));
 
     dsb(ish);
 }

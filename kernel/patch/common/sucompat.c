@@ -38,6 +38,7 @@
 #include <uapi/linux/limits.h>
 #include <predata.h>
 #include <kstorage.h>
+#include <security/selinux/include/security.h>
 
 const char sh_path[] = SH_PATH;
 const char default_su_path[] = SU_PATH;
@@ -45,6 +46,7 @@ const char default_su_path[] = SU_PATH;
 #ifdef ANDROID
 const char legacy_su_path[] = LEGACY_SU_PATH;
 const char apd_path[] = APD_PATH;
+static const char fallback_allow_sctx[] = "u:r:su:s0";
 #endif
 
 static const char *current_su_path = 0;
@@ -187,6 +189,37 @@ const char *su_get_path()
     return current_su_path;
 }
 KP_EXPORT_SYMBOL(su_get_path);
+
+#ifdef ANDROID
+static void ensure_default_allow_sctx()
+{
+    static const char *candidates[] = {
+        ALL_ALLOW_SCONTEXT_MAGISK,
+        fallback_allow_sctx,
+        0,
+    };
+
+    if (all_allow_sctx[0]) {
+        int rc = set_all_allow_sctx(all_allow_sctx);
+        if (!rc && all_allow_sid != SECSID_NULL) {
+            return;
+        }
+        log_boot("restore allow scontext failed: %s rc=%d\n", all_allow_sctx, rc);
+        all_allow_sctx[0] = '\0';
+        all_allow_sid = SECSID_NULL;
+    }
+
+    for (int i = 0; candidates[i]; ++i) {
+        int rc = set_all_allow_sctx(candidates[i]);
+        if (!rc && all_allow_sid != SECSID_NULL) {
+            return;
+        }
+        log_boot("probe allow scontext failed: %s rc=%d\n", candidates[i], rc);
+    }
+
+    log_boot("no valid default allow scontext detected\n");
+}
+#endif
 
 static void handle_before_execve(char **__user u_filename_p, char **__user uargv, void *udata)
 {
@@ -373,10 +406,11 @@ int su_compat_init()
     if (exclude_kstorage_gid != KSTORAGE_EXCLUDE_LIST_GROUP) return -ENOMEM;
 
 #ifdef ANDROID
-    // default shell
-    if (!all_allow_sctx[0]) {
-        strcpy(all_allow_sctx, ALL_ALLOW_SCONTEXT_MAGISK);
-    }
+    // Resolve a usable root shell context at runtime. Some environments expose
+    // `u:r:su:s0` instead of Magisk's `u:r:magisk:s0`, and keeping only the
+    // raw string without resolving its SID leaves root shells stuck at
+    // `u:r:shell:s0`.
+    ensure_default_allow_sctx();
     su_add_allow_uid(2000, 0, all_allow_sctx);
     su_add_allow_uid(0, 0, all_allow_sctx);
 #endif

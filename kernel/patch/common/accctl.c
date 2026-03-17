@@ -70,9 +70,10 @@ int set_all_allow_sctx(const char *sctx)
 
 int commit_kernel_su()
 {
-    struct cred *new = prepare_kernel_cred(0);
-    set_security_override(new, all_allow_sid);
-    return commit_creds(new);
+    if (all_allow_sctx[0]) {
+        return commit_common_su(0, all_allow_sctx);
+    }
+    return commit_common_su(0, 0);
 }
 
 int commit_common_su(uid_t to_uid, const char *sctx)
@@ -118,8 +119,8 @@ out:
     int pid = __task_pid_nr_ns(task, PIDTYPE_PID, 0);
     int tgid = __task_pid_nr_ns(task, PIDTYPE_TGID, 0);
     int via_hook = ext_valid ? ext->sel_allow : 0;
-    logkfi("pid: %d, tgid: %d, to_uid: %d, sctx: %s, via_hook: %d ext_valid: %d\n", pid, tgid, to_uid, sctx,
-           via_hook, ext_valid);
+    logkfi("pid: %d, tgid: %d, to_uid: %d, sctx: %s, via_hook: %d ext_valid: %d\n", pid, tgid, to_uid, sctx, via_hook,
+           ext_valid);
     return rc;
 }
 
