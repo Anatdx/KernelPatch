@@ -80,10 +80,10 @@ int commit_common_su(uid_t to_uid, const char *sctx)
     int rc = 0;
     struct task_struct *task = current;
     struct task_ext *ext = get_task_ext(task);
-    if (unlikely(!task_ext_valid(ext))) {
-        logkfe("dirty task_ext, pid(maybe dirty): %d\n", ext->pid);
-        rc = -ENOMEM;
-        goto out;
+    bool ext_valid = task_ext_valid(ext);
+    if (unlikely(!ext_valid)) {
+        log_boot("commit_common_su fallback without task_ext, pid=%d\n", __task_pid_nr_ns(task, PIDTYPE_PID, 0));
+        ext = 0;
     }
 
     struct thread_info *thi = current_thread_info();
@@ -97,7 +97,9 @@ int commit_common_su(uid_t to_uid, const char *sctx)
         // seccomp_filter_release(task);
     }
 
-    ext->sel_allow = 1;
+    if (ext_valid) {
+        ext->sel_allow = 1;
+    }
     struct cred *new = prepare_creds();
     su_cred(new, to_uid);
 
@@ -105,13 +107,19 @@ int commit_common_su(uid_t to_uid, const char *sctx)
     set_groups(new, group_info);
 
     if (sctx && sctx[0]) {
-        ext->sel_allow = !!set_security_override_from_ctx(new, sctx);
+        int allow = !!set_security_override_from_ctx(new, sctx);
+        if (ext_valid) {
+            ext->sel_allow = allow;
+        }
     }
     commit_creds(new);
 
 out:
-    logkfi("pid: %d, tgid: %d, to_uid: %d, sctx: %s, via_hook: %d\n", ext->pid, ext->tgid, to_uid, sctx,
-           ext->sel_allow);
+    int pid = __task_pid_nr_ns(task, PIDTYPE_PID, 0);
+    int tgid = __task_pid_nr_ns(task, PIDTYPE_TGID, 0);
+    int via_hook = ext_valid ? ext->sel_allow : 0;
+    logkfi("pid: %d, tgid: %d, to_uid: %d, sctx: %s, via_hook: %d ext_valid: %d\n", pid, tgid, to_uid, sctx,
+           via_hook, ext_valid);
     return rc;
 }
 
@@ -139,11 +147,10 @@ int task_su(pid_t pid, uid_t to_uid, const char *sctx)
         return -ESRCH;
     }
     struct task_ext *ext = get_task_ext(task);
-
-    if (unlikely(!task_ext_valid(ext))) {
-        logkfe("dirty task_ext, pid(maybe dirty): %d\n", ext->pid);
-        rc = -ENOMEM;
-        goto out;
+    bool ext_valid = task_ext_valid(ext);
+    if (unlikely(!ext_valid)) {
+        log_boot("task_su fallback without task_ext, pid=%d\n", pid);
+        ext = 0;
     }
 
     struct thread_info *thi = get_task_thread_info(task);
@@ -166,10 +173,17 @@ int task_su(pid_t pid, uid_t to_uid, const char *sctx)
         su_cred(real_cred, to_uid);
         if (sctx && sctx[0]) scontext_changed = scontext_changed && !set_security_override_from_ctx(real_cred, sctx);
     }
-    ext->priv_sel_allow = !scontext_changed;
+    if (ext_valid) {
+        ext->priv_sel_allow = !scontext_changed;
+    }
 
-    logkfi("pid: %d, tgid: %d, to_uid: %d, sctx: %s, via_hook: %d\n", ext->pid, ext->tgid, to_uid, sctx,
-           ext->priv_sel_allow);
+    {
+        int task_pid = __task_pid_nr_ns(task, PIDTYPE_PID, 0);
+        int task_tgid = __task_pid_nr_ns(task, PIDTYPE_TGID, 0);
+        int via_hook = ext_valid ? ext->priv_sel_allow : 0;
+        logkfi("pid: %d, tgid: %d, to_uid: %d, sctx: %s, via_hook: %d ext_valid: %d\n", task_pid, task_tgid, to_uid,
+               sctx, via_hook, ext_valid);
+    }
 out:
     return rc;
 }

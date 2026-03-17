@@ -28,7 +28,7 @@ extern setup_header_t *setup_header;
 #define KP_POLICY_PROFILE_FULL 3
 
 // backward-compatible aliases
-#define KP_POLICY_PROFILE_LEGACY KP_POLICY_PROFILE_FULL
+#define KP_POLICY_PROFILE_LEGACY KP_POLICY_PROFILE_ROOTFUL
 #define KP_POLICY_PROFILE_NO_SU KP_POLICY_PROFILE_MINIMAL
 
 #define KP_HOOK_STAGE1_PANIC (1u << 0)

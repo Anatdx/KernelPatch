@@ -33,9 +33,9 @@ static uint64_t _rand_next = 1000000007;
 static bool enable_root_key = false;
 
 #define FEATURE_PROFILE_MINIMAL (KP_FEATURE_KCFI_BYPASS | KP_FEATURE_SUPERCALL | KP_FEATURE_KSTORAGE)
-#define FEATURE_PROFILE_ROOTFUL (FEATURE_PROFILE_MINIMAL | KP_FEATURE_SU | KP_FEATURE_SU_COMPAT | KP_FEATURE_ANDROID_USER)
+#define FEATURE_PROFILE_ROOTFUL (FEATURE_PROFILE_MINIMAL | KP_FEATURE_SU | KP_FEATURE_SU_COMPAT)
 #define FEATURE_PROFILE_KPM_SUPPORT (FEATURE_PROFILE_MINIMAL)
-#define FEATURE_PROFILE_FULL (FEATURE_PROFILE_ROOTFUL | KP_FEATURE_FS_API)
+#define FEATURE_PROFILE_FULL (FEATURE_PROFILE_ROOTFUL | KP_FEATURE_ANDROID_USER | KP_FEATURE_FS_API)
 
 #define STAGE1_PROFILE_MINIMAL (KP_HOOK_STAGE1_INIT)
 #define STAGE1_PROFILE_ROOTFUL (KP_HOOK_STAGE1_INIT)
@@ -158,7 +158,13 @@ static void apply_feature_profile(const char *profile)
         return;
     }
 
-    if (!lib_strcasecmp(profile, "legacy") || !lib_strcasecmp(profile, "full")) {
+    if (!lib_strcasecmp(profile, "legacy")) {
+        kp_feature_flags = kp_policy_profile_flags(KP_POLICY_PROFILE_ROOTFUL);
+        kp_stage1_hook_flags = kp_policy_profile_stage1_hooks(KP_POLICY_PROFILE_ROOTFUL);
+        return;
+    }
+
+    if (!lib_strcasecmp(profile, "full")) {
         kp_feature_flags = kp_policy_profile_flags(KP_POLICY_PROFILE_FULL);
         kp_stage1_hook_flags = kp_policy_profile_stage1_hooks(KP_POLICY_PROFILE_FULL);
         return;
@@ -191,7 +197,13 @@ static void apply_additional_kv(const char *key, const char *value)
             return;
         }
 
-        if (!lib_strcasecmp(value, "legacy") || !lib_strcasecmp(value, "full")) {
+        if (!lib_strcasecmp(value, "legacy")) {
+            kp_feature_flags = kp_policy_profile_flags(KP_POLICY_PROFILE_ROOTFUL);
+            kp_stage1_hook_flags = kp_policy_profile_stage1_hooks(KP_POLICY_PROFILE_ROOTFUL);
+            return;
+        }
+
+        if (!lib_strcasecmp(value, "full")) {
             kp_feature_flags = kp_policy_profile_flags(KP_POLICY_PROFILE_FULL);
             kp_stage1_hook_flags = kp_policy_profile_stage1_hooks(KP_POLICY_PROFILE_FULL);
             return;
@@ -318,9 +330,11 @@ uint32_t kp_normalize_feature_flags(uint32_t flags)
         flags |= KP_FEATURE_SU;
     }
 
+    if (flags & KP_FEATURE_ANDROID_USER) {
+        flags |= KP_FEATURE_SU_COMPAT;
+    }
+
     if (flags & KP_FEATURE_SU) {
-        flags |= KP_FEATURE_TASK_OBSERVER;
-        flags |= KP_FEATURE_SELINUX_BYPASS;
         flags |= KP_FEATURE_SUPERCALL;
         flags |= KP_FEATURE_KSTORAGE;
     }

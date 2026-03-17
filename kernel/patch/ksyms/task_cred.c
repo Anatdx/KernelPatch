@@ -24,6 +24,7 @@
 #include <symbol.h>
 #include <linux/mm_types.h>
 #include <asm/processor.h>
+#include <uapi/asm-generic/errno.h>
 
 #define TASK_COMM_LEN 16
 
@@ -409,17 +410,18 @@ int resolve_task_offset()
         }
     }
 
-    char flag_cred[CRED_MAX_SIZE];
-    lib_memcpy(flag_cred, init_cred, sizeof(flag_cred));
-    *(uintptr_t *)((uintptr_t)init_task + cred_offset[0]) = (uintptr_t)flag_cred;
-    if ((uintptr_t)init_cred == (uintptr_t)flag_cred) {
-        task_struct_offset.real_cred_offset = cred_offset[0];
-        task_struct_offset.cred_offset = cred_offset[1];
-    } else {
-        task_struct_offset.real_cred_offset = cred_offset[1];
-        task_struct_offset.cred_offset = cred_offset[0];
+    /*
+     * Never write into live init_task during early boot probing.
+     * Some kernels can hit this window on other CPUs and crash hard.
+     */
+    if (cred_offset_idx <= 0) {
+        log_boot("    failed to locate cred pointer in init_task\n");
+        revert_current(backup);
+        vfree(task);
+        return -EINVAL;
     }
-    *(uintptr_t *)((uintptr_t)init_task + cred_offset[0]) = (uintptr_t)init_cred;
+    task_struct_offset.cred_offset = cred_offset[0];
+    task_struct_offset.real_cred_offset = cred_offset_idx >= 2 ? cred_offset[1] : cred_offset[0];
 
     log_boot("    cred offset: %x\n", task_struct_offset.cred_offset);
     log_boot("    real_cred offset: %x\n", task_struct_offset.real_cred_offset);
