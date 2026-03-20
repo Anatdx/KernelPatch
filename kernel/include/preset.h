@@ -36,7 +36,28 @@
 
 #define PATCH_EXTRA_ITEM_LEN (128)
 
+#define KP_POLICY_SLOT_MAGIC 0x4b504f4cU
+#define KP_POLICY_SLOT_VERSION 1
+#define KP_POLICY_SLOT_SIZE 0x20
+#define KP_ADDITIONAL_TEXT_OFFSET KP_POLICY_SLOT_SIZE
+
 #define VERSION(major, minor, patch) (((major) << 16) + ((minor) << 8) + (patch))
+
+#ifndef __ASSEMBLY__
+typedef struct _kp_policy_slot_t
+{
+    uint32_t magic;
+    uint16_t version;
+    uint16_t size;
+    uint32_t profile;
+    uint32_t feature_flags;
+    uint32_t option_flags;
+    uint32_t reserved0;
+    uint32_t reserved1;
+    uint32_t reserved2;
+} kp_policy_slot_t;
+_Static_assert(sizeof(kp_policy_slot_t) == KP_POLICY_SLOT_SIZE, "sizeof kp_policy_slot_t mismatch");
+#endif
 
 #ifndef __ASSEMBLY__
 typedef struct version_t

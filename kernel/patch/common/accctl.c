@@ -29,6 +29,10 @@
 char all_allow_sctx[SUPERCALL_SCONTEXT_LEN] = { '\0' };
 uint32_t all_allow_sid = SECSID_NULL;
 
+#ifdef ANDROID
+static const char fallback_allow_sctx[] = "u:r:su:s0";
+#endif
+
 static void su_cred(struct cred *cred, uid_t uid)
 {
     *(kernel_cap_t *)((uintptr_t)cred + cred_offset.cap_inheritable_offset) = full_cap;
@@ -76,6 +80,63 @@ int commit_kernel_su()
     return commit_common_su(0, 0);
 }
 
+static int apply_scontext_candidates(struct cred *new, uid_t to_uid, const char *requested_sctx, int *out_allow,
+                                     const char **out_effective_sctx)
+{
+    int rc = 0;
+    int attempted = 0;
+    int allow = 0;
+    const char *effective_sctx = requested_sctx;
+    const char *candidates[4] = { 0 };
+    int candidate_num = 0;
+
+    if (requested_sctx && requested_sctx[0]) {
+        candidates[candidate_num++] = requested_sctx;
+    }
+
+    if (all_allow_sctx[0] && (!requested_sctx || strcmp(requested_sctx, all_allow_sctx))) {
+        candidates[candidate_num++] = all_allow_sctx;
+    }
+
+#ifdef ANDROID
+    if (!to_uid) {
+        if ((!requested_sctx || strcmp(requested_sctx, ALL_ALLOW_SCONTEXT_MAGISK)) &&
+            strcmp(all_allow_sctx, ALL_ALLOW_SCONTEXT_MAGISK)) {
+            candidates[candidate_num++] = ALL_ALLOW_SCONTEXT_MAGISK;
+        }
+        if ((!requested_sctx || strcmp(requested_sctx, fallback_allow_sctx)) &&
+            strcmp(all_allow_sctx, fallback_allow_sctx)) {
+            candidates[candidate_num++] = fallback_allow_sctx;
+        }
+    }
+#endif
+
+    for (int i = 0; i < candidate_num; ++i) {
+        const char *candidate = candidates[i];
+        if (!candidate || !candidate[0]) continue;
+        attempted = 1;
+        rc = set_security_override_from_ctx(new, candidate);
+        log_boot("commit_su try sctx: %s rc=%d\n", candidate, rc);
+        if (!rc) {
+            allow = 1;
+            effective_sctx = candidate;
+            break;
+        }
+    }
+
+    if (!attempted) {
+        rc = 0;
+    }
+
+    if (out_allow) {
+        *out_allow = allow;
+    }
+    if (out_effective_sctx) {
+        *out_effective_sctx = effective_sctx;
+    }
+    return rc;
+}
+
 int commit_common_su(uid_t to_uid, const char *sctx)
 {
     int rc = 0;
@@ -107,11 +168,20 @@ int commit_common_su(uid_t to_uid, const char *sctx)
     struct group_info *group_info = groups_alloc(0);
     set_groups(new, group_info);
 
+    int allow = 0;
+    const char *effective_sctx = sctx;
     if (sctx && sctx[0]) {
-        int allow = !!set_security_override_from_ctx(new, sctx);
-        if (ext_valid) {
-            ext->sel_allow = allow;
-        }
+        rc = apply_scontext_candidates(new, to_uid, sctx, &allow, &effective_sctx);
+    } else if (!to_uid || all_allow_sctx[0]) {
+        rc = apply_scontext_candidates(new, to_uid, 0, &allow, &effective_sctx);
+    }
+    if (rc) {
+        log_boot("commit_su proceed without resolved scontext rc=%d requested=%s effective=%s\n", rc, sctx,
+                 effective_sctx);
+        rc = 0;
+    }
+    if (ext_valid) {
+        ext->sel_allow = allow;
     }
     commit_creds(new);
 
@@ -119,20 +189,15 @@ out:
     int pid = __task_pid_nr_ns(task, PIDTYPE_PID, 0);
     int tgid = __task_pid_nr_ns(task, PIDTYPE_TGID, 0);
     int via_hook = ext_valid ? ext->sel_allow : 0;
-    logkfi("pid: %d, tgid: %d, to_uid: %d, sctx: %s, via_hook: %d ext_valid: %d\n", pid, tgid, to_uid, sctx, via_hook,
-           ext_valid);
+    logkfi("pid: %d, tgid: %d, to_uid: %d, sctx: %s, via_hook: %d ext_valid: %d\n", pid, tgid, to_uid, effective_sctx,
+           via_hook, ext_valid);
     return rc;
 }
 
 int commit_su(uid_t to_uid, const char *sctx)
 {
     if (!kp_su_mode_enabled()) return -EPERM;
-
-    if (all_allow_sid != SECSID_NULL && !to_uid) {
-        return commit_kernel_su();
-    } else {
-        return commit_common_su(to_uid, sctx);
-    }
+    return commit_common_su(to_uid, sctx);
 }
 
 // todo: rcu

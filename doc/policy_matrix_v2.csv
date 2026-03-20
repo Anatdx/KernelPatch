@@ -1,0 +1,5 @@
+Profile,Stage1 Hooks,before_rest_init() Ordered Init,before_kernel_init(),Runtime Scope,Notes
+minimal/rootless/no-su,INIT,"hotpatch_init; bypass_kcfi; resolve_struct; supercall_install; kstorage_init",none,"may hot-apply rootful or full later","default safe baseline"
+legacy/rootful,INIT,"hotpatch_init; bypass_kcfi; resolve_struct; bypass_selinux; task_observer; supercall_install; kstorage_init; su_compat_init; android_sepolicy_flags_fix",none,"may hot-upgrade to full later","cold boot enters rootful directly"
+kpm-support,"INIT + KERNEL_INIT","hotpatch_init; bypass_kcfi; resolve_struct; supercall_install; kstorage_init","KPM pre/post-kernel-init events only","may hot-apply rootful/full later","for KPM event pipeline without rootful boot"
+full,"INIT + KERNEL_INIT","hotpatch_init; bypass_kcfi; resolve_struct; bypass_selinux; task_observer; supercall_install; kstorage_init; su_compat_init; android_sepolicy_flags_fix; android_user_init; fsapi_install","KPM pre/post-kernel-init events","broadest hot policy scope","highest risk profile"

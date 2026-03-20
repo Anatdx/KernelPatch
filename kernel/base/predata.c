@@ -1,17 +1,17 @@
 /* SPDX-License-Identifier: GPL-2.0-or-later */
-/* 
+/*
  * Copyright (C) 2023 bmax121. All Rights Reserved.
  */
 
-#include <predata.h>
 #include <common.h>
 #include <log.h>
+#include <predata.h>
 #include <sha256.h>
 #include <symbol.h>
 
-#include "start.h"
-#include "pgtable.h"
 #include "baselib.h"
+#include "pgtable.h"
+#include "start.h"
 
 extern start_preset_t start_preset;
 
@@ -24,9 +24,6 @@ KP_EXPORT_SYMBOL(patch_config);
 uint32_t kp_feature_flags = 0;
 KP_EXPORT_SYMBOL(kp_feature_flags);
 
-uint32_t kp_stage1_hook_flags = 0;
-KP_EXPORT_SYMBOL(kp_stage1_hook_flags);
-
 static const char bstr[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
 
 static uint64_t _rand_next = 1000000007;
@@ -38,11 +35,6 @@ static bool enable_root_key = false;
      KP_FEATURE_SU_COMPAT | KP_FEATURE_ANDROID_USER)
 #define FEATURE_PROFILE_KPM_SUPPORT (FEATURE_PROFILE_MINIMAL)
 #define FEATURE_PROFILE_FULL (FEATURE_PROFILE_ROOTFUL | KP_FEATURE_FS_API)
-
-#define STAGE1_PROFILE_MINIMAL (KP_HOOK_STAGE1_INIT)
-#define STAGE1_PROFILE_ROOTFUL (KP_HOOK_STAGE1_INIT)
-#define STAGE1_PROFILE_KPM_SUPPORT (KP_HOOK_STAGE1_INIT | KP_HOOK_STAGE1_KERNEL_INIT)
-#define STAGE1_PROFILE_FULL (KP_HOOK_STAGE1_INIT | KP_HOOK_STAGE1_KERNEL_INIT)
 
 static void set_feature_flag(uint32_t feature, bool enable)
 {
@@ -111,70 +103,32 @@ uint32_t kp_policy_profile_flags(int profile)
 }
 KP_EXPORT_SYMBOL(kp_policy_profile_flags);
 
-uint32_t kp_policy_profile_stage1_hooks(int profile)
-{
-    uint32_t flags = 0;
-    switch (profile) {
-    case KP_POLICY_PROFILE_MINIMAL:
-        flags = STAGE1_PROFILE_MINIMAL;
-        break;
-    case KP_POLICY_PROFILE_ROOTFUL:
-        flags = STAGE1_PROFILE_ROOTFUL;
-        break;
-    case KP_POLICY_PROFILE_KPM_SUPPORT:
-        flags = STAGE1_PROFILE_KPM_SUPPORT;
-        break;
-    case KP_POLICY_PROFILE_FULL:
-        flags = STAGE1_PROFILE_FULL;
-        break;
-    default:
-        flags = 0;
-        break;
-    }
-#ifdef DEBUG
-    flags |= KP_HOOK_STAGE1_PANIC;
-#endif
-    return flags;
-}
-KP_EXPORT_SYMBOL(kp_policy_profile_stage1_hooks);
-
 static void apply_feature_profile(const char *profile)
 {
     if (!profile || !profile[0]) return;
     if (!lib_strcasecmp(profile, "minimal")) {
         kp_feature_flags = kp_policy_profile_flags(KP_POLICY_PROFILE_MINIMAL);
-        kp_stage1_hook_flags = kp_policy_profile_stage1_hooks(KP_POLICY_PROFILE_MINIMAL);
         return;
     }
 
-    if (!lib_strcasecmp(profile, "rootful")) {
+    if (!lib_strcasecmp(profile, "rootful") || !lib_strcasecmp(profile, "legacy")) {
         kp_feature_flags = kp_policy_profile_flags(KP_POLICY_PROFILE_ROOTFUL);
-        kp_stage1_hook_flags = kp_policy_profile_stage1_hooks(KP_POLICY_PROFILE_ROOTFUL);
         return;
     }
 
     if (!lib_strcasecmp(profile, "kpm") || !lib_strcasecmp(profile, "kpm-support") ||
         !lib_strcasecmp(profile, "kpm_support")) {
         kp_feature_flags = kp_policy_profile_flags(KP_POLICY_PROFILE_KPM_SUPPORT);
-        kp_stage1_hook_flags = kp_policy_profile_stage1_hooks(KP_POLICY_PROFILE_KPM_SUPPORT);
-        return;
-    }
-
-    if (!lib_strcasecmp(profile, "legacy")) {
-        kp_feature_flags = kp_policy_profile_flags(KP_POLICY_PROFILE_ROOTFUL);
-        kp_stage1_hook_flags = kp_policy_profile_stage1_hooks(KP_POLICY_PROFILE_ROOTFUL);
         return;
     }
 
     if (!lib_strcasecmp(profile, "full")) {
         kp_feature_flags = kp_policy_profile_flags(KP_POLICY_PROFILE_FULL);
-        kp_stage1_hook_flags = kp_policy_profile_stage1_hooks(KP_POLICY_PROFILE_FULL);
         return;
     }
 
     if (!lib_strcasecmp(profile, "no-su") || !lib_strcasecmp(profile, "nosu")) {
         kp_feature_flags = kp_policy_profile_flags(KP_POLICY_PROFILE_MINIMAL);
-        kp_stage1_hook_flags = kp_policy_profile_stage1_hooks(KP_POLICY_PROFILE_MINIMAL);
         apply_mode_no_su();
         return;
     }
@@ -198,37 +152,8 @@ static void apply_additional_kv(const char *key, const char *value)
             apply_mode_no_su();
             return;
         }
-
-        if (!lib_strcasecmp(value, "legacy")) {
-            kp_feature_flags = kp_policy_profile_flags(KP_POLICY_PROFILE_ROOTFUL);
-            kp_stage1_hook_flags = kp_policy_profile_stage1_hooks(KP_POLICY_PROFILE_ROOTFUL);
-            return;
-        }
-
-        if (!lib_strcasecmp(value, "full")) {
-            kp_feature_flags = kp_policy_profile_flags(KP_POLICY_PROFILE_FULL);
-            kp_stage1_hook_flags = kp_policy_profile_stage1_hooks(KP_POLICY_PROFILE_FULL);
-            return;
-        }
-
-        if (!lib_strcasecmp(value, "rootful")) {
-            kp_feature_flags = kp_policy_profile_flags(KP_POLICY_PROFILE_ROOTFUL);
-            kp_stage1_hook_flags = kp_policy_profile_stage1_hooks(KP_POLICY_PROFILE_ROOTFUL);
-            return;
-        }
-
-        if (!lib_strcasecmp(value, "kpm") || !lib_strcasecmp(value, "kpm-support") ||
-            !lib_strcasecmp(value, "kpm_support")) {
-            kp_feature_flags = kp_policy_profile_flags(KP_POLICY_PROFILE_KPM_SUPPORT);
-            kp_stage1_hook_flags = kp_policy_profile_stage1_hooks(KP_POLICY_PROFILE_KPM_SUPPORT);
-            return;
-        }
-
-        if (!lib_strcasecmp(value, "minimal")) {
-            kp_feature_flags = kp_policy_profile_flags(KP_POLICY_PROFILE_MINIMAL);
-            kp_stage1_hook_flags = kp_policy_profile_stage1_hooks(KP_POLICY_PROFILE_MINIMAL);
-            return;
-        }
+        apply_feature_profile(value);
+        return;
     }
 
     if (!lib_strcmp(key, "profile") || !lib_strcmp(key, "hook.profile")) {
@@ -244,40 +169,10 @@ static void apply_additional_kv(const char *key, const char *value)
         }
     }
 
-    if (!lib_strcmp(key, "hook.panic")) {
-        bool enabled = false;
-        if (!parse_bool_text(value, &enabled)) {
-            if (enabled) {
-                kp_stage1_hook_flags |= KP_HOOK_STAGE1_PANIC;
-            } else {
-                kp_stage1_hook_flags &= ~KP_HOOK_STAGE1_PANIC;
-            }
-            return;
-        }
-    }
-
-    if (!lib_strcmp(key, "hook.init")) {
-        bool enabled = false;
-        if (!parse_bool_text(value, &enabled)) {
-            if (enabled) {
-                kp_stage1_hook_flags |= KP_HOOK_STAGE1_INIT;
-            } else {
-                kp_stage1_hook_flags &= ~KP_HOOK_STAGE1_INIT;
-            }
-            return;
-        }
-    }
-
-    if (!lib_strcmp(key, "hook.kernel_init") || !lib_strcmp(key, "hook.kpm_event")) {
-        bool enabled = false;
-        if (!parse_bool_text(value, &enabled)) {
-            if (enabled) {
-                kp_stage1_hook_flags |= KP_HOOK_STAGE1_KERNEL_INIT;
-            } else {
-                kp_stage1_hook_flags &= ~KP_HOOK_STAGE1_KERNEL_INIT;
-            }
-            return;
-        }
+    if (!lib_strcmp(key, "hook.panic") || !lib_strcmp(key, "hook.init") || !lib_strcmp(key, "hook.kernel_init") ||
+        !lib_strcmp(key, "hook.kpm_event")) {
+        log_boot("ignore stage1 additional: %s=%s\n", key, value);
+        return;
     }
 
     if (!lib_strncmp(key, "feature.", 8)) {
@@ -295,10 +190,50 @@ static void apply_additional_kv(const char *key, const char *value)
     log_boot("unknown additional: %s=%s\n", key, value);
 }
 
-static void parse_additional()
+static bool read_policy_slot(kp_policy_slot_t *slot)
+{
+    lib_memcpy(slot, start_preset.additional, sizeof(*slot));
+    return slot->magic == KP_POLICY_SLOT_MAGIC;
+}
+
+static int policy_text_offset(const kp_policy_slot_t *slot, bool has_slot)
+{
+    if (!has_slot) return 0;
+    if (slot->size >= KP_POLICY_SLOT_SIZE && slot->size <= ADDITIONAL_LEN) {
+        return slot->size;
+    }
+    return KP_ADDITIONAL_TEXT_OFFSET;
+}
+
+static void apply_policy_slot(const kp_policy_slot_t *slot, bool has_slot)
+{
+    if (!has_slot) return;
+
+    if (slot->version != KP_POLICY_SLOT_VERSION) {
+        log_boot("ignore policy slot version=%u size=%u\n", slot->version, slot->size);
+        return;
+    }
+
+    uint32_t flags = 0;
+    if (slot->profile <= KP_POLICY_PROFILE_FULL) {
+        flags = kp_policy_profile_flags((int)slot->profile);
+    }
+    if (slot->feature_flags) {
+        flags = slot->feature_flags;
+    }
+    if (!flags) {
+        log_boot("ignore empty policy slot profile=%u flags=0x%x\n", slot->profile, slot->feature_flags);
+        return;
+    }
+
+    kp_feature_flags = flags;
+    log_boot("policy slot profile=%u flags=0x%x size=%u\n", slot->profile, slot->feature_flags, slot->size);
+}
+
+static void parse_additional(int start_offset)
 {
     const char *addition = start_preset.additional;
-    const char *pos = addition;
+    const char *pos = addition + start_offset;
     const char *end = addition + ADDITIONAL_LEN;
 
     while (pos < end) {
@@ -436,11 +371,14 @@ int on_each_extra_item(int (*callback)(const patch_extra_item_t *extra, const ch
 
 void predata_init()
 {
+    kp_policy_slot_t policy_slot = { 0 };
+    bool has_policy_slot = false;
+    int text_offset = 0;
+
     superkey = (char *)start_preset.superkey;
     root_superkey = (char *)start_preset.root_superkey;
     char *compile_time = start_preset.header.compile_time;
 
-    // RNG
     _rand_next *= kernel_va;
     _rand_next *= kver;
     _rand_next *= kpver;
@@ -452,7 +390,6 @@ void predata_init()
 
     enable_root_key = false;
 
-    // random key
     if (lib_strnlen(superkey, SUPER_KEY_LEN) <= 0) {
         enable_root_key = true;
         int len = SUPER_KEY_LEN > 16 ? 16 : SUPER_KEY_LEN;
@@ -471,17 +408,19 @@ void predata_init()
     }
 
     kp_feature_flags = kp_policy_profile_flags(KP_POLICY_PROFILE_MINIMAL);
-    kp_stage1_hook_flags = kp_policy_profile_stage1_hooks(KP_POLICY_PROFILE_MINIMAL);
-    parse_additional();
+
+    has_policy_slot = read_policy_slot(&policy_slot);
+    text_offset = policy_text_offset(&policy_slot, has_policy_slot);
+    apply_policy_slot(&policy_slot, has_policy_slot);
+    parse_additional(text_offset);
     kp_feature_flags = kp_normalize_feature_flags(kp_feature_flags);
 
-    log_boot("feature flags=0x%x hooks(stage1)=0x%x panic=%d init=%d kernel_init=%d su=%d su_compat=%d android_user=%d "
+    log_boot("feature flags=0x%x policy_slot=%d text_offset=0x%x su=%d su_compat=%d android_user=%d "
              "selinux_bypass=%d task_observer=%d fs_api=%d\n",
-             kp_feature_flags, kp_stage1_hook_flags, kp_stage1_hook_enabled(KP_HOOK_STAGE1_PANIC),
-             kp_stage1_hook_enabled(KP_HOOK_STAGE1_INIT), kp_stage1_hook_enabled(KP_HOOK_STAGE1_KERNEL_INIT),
-             kp_feature_enabled(KP_FEATURE_SU), kp_feature_enabled(KP_FEATURE_SU_COMPAT),
-             kp_feature_enabled(KP_FEATURE_ANDROID_USER), kp_feature_enabled(KP_FEATURE_SELINUX_BYPASS),
-             kp_feature_enabled(KP_FEATURE_TASK_OBSERVER), kp_feature_enabled(KP_FEATURE_FS_API));
+             kp_feature_flags, has_policy_slot, text_offset, kp_feature_enabled(KP_FEATURE_SU),
+             kp_feature_enabled(KP_FEATURE_SU_COMPAT), kp_feature_enabled(KP_FEATURE_ANDROID_USER),
+             kp_feature_enabled(KP_FEATURE_SELINUX_BYPASS), kp_feature_enabled(KP_FEATURE_TASK_OBSERVER),
+             kp_feature_enabled(KP_FEATURE_FS_API));
 
     dsb(ish);
 }

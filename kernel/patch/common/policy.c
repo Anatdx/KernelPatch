@@ -30,6 +30,9 @@ int android_sepolicy_flags_unfix();
 #endif
 
 static uint32_t runtime_ready_flags = 0;
+#ifdef ANDROID
+static bool android_sepolicy_fix_ready = false;
+#endif
 
 void kp_policy_mark_component_ready(uint32_t feature, bool ready)
 {
@@ -39,6 +42,15 @@ void kp_policy_mark_component_ready(uint32_t feature, bool ready)
     } else {
         runtime_ready_flags &= ~feature;
     }
+}
+
+void kp_policy_mark_android_sepolicy_fix_ready(bool ready)
+{
+#ifdef ANDROID
+    android_sepolicy_fix_ready = ready;
+#else
+    (void)ready;
+#endif
 }
 
 static int policy_ensure_feature(uint32_t target_flags, uint32_t feature, int (*install_fn)(), const char *name)
@@ -92,9 +104,11 @@ static int kp_policy_ensure_runtime(uint32_t target_flags)
     if (rc) return rc;
 
 #ifdef ANDROID
-    if (target_flags & KP_FEATURE_SU) {
-        rc = policy_ensure_feature(target_flags, KP_FEATURE_SU, android_sepolicy_flags_fix, "android_sepolicy_fix");
+    if ((target_flags & (KP_FEATURE_SU_COMPAT | KP_FEATURE_ANDROID_USER)) && !android_sepolicy_fix_ready) {
+        rc = android_sepolicy_flags_fix();
+        log_boot("policy ensure android_sepolicy_fix rc: %d\n", rc);
         if (rc) return rc;
+        android_sepolicy_fix_ready = true;
     }
     rc = policy_ensure_feature(target_flags, KP_FEATURE_ANDROID_USER, android_user_init, "android_user");
     if (rc) return rc;
@@ -110,9 +124,13 @@ static int kp_policy_disable_runtime(uint32_t old_flags, uint32_t target_flags)
 #ifdef ANDROID
     rc = policy_disable_feature(old_flags, target_flags, KP_FEATURE_ANDROID_USER, android_user_deinit, "android_user");
     if (rc) return rc;
-    rc = policy_disable_feature(old_flags, target_flags, KP_FEATURE_SU, android_sepolicy_flags_unfix,
-                                "android_sepolicy_fix");
-    if (rc) return rc;
+    if ((old_flags & (KP_FEATURE_SU_COMPAT | KP_FEATURE_ANDROID_USER)) &&
+        !(target_flags & (KP_FEATURE_SU_COMPAT | KP_FEATURE_ANDROID_USER)) && android_sepolicy_fix_ready) {
+        rc = android_sepolicy_flags_unfix();
+        log_boot("policy disable android_sepolicy_fix rc: %d\n", rc);
+        if (rc) return rc;
+        android_sepolicy_fix_ready = false;
+    }
 #endif
 
     rc = policy_disable_feature(old_flags, target_flags, KP_FEATURE_SU_COMPAT, su_compat_deinit, "su_compat");

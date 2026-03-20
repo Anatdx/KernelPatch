@@ -406,10 +406,6 @@ int su_compat_init()
     if (exclude_kstorage_gid != KSTORAGE_EXCLUDE_LIST_GROUP) return -ENOMEM;
 
 #ifdef ANDROID
-    // Resolve a usable root shell context at runtime. Some environments expose
-    // `u:r:su:s0` instead of Magisk's `u:r:magisk:s0`, and keeping only the
-    // raw string without resolving its SID leaves root shells stuck at
-    // `u:r:shell:s0`.
     ensure_default_allow_sctx();
     su_add_allow_uid(2000, 0, all_allow_sctx);
     su_add_allow_uid(0, 0, all_allow_sctx);

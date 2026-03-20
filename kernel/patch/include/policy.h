@@ -9,6 +9,7 @@
 #include <ktypes.h>
 
 void kp_policy_mark_component_ready(uint32_t feature, bool ready);
+void kp_policy_mark_android_sepolicy_fix_ready(bool ready);
 int kp_policy_apply_flags(uint32_t requested_flags);
 int kp_policy_apply_profile(int profile);
 
